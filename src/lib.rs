@@ -1,2 +1,3 @@
+pub mod circuits;
 pub mod contracts;
-pub mod merkle_tree;
+pub mod state;

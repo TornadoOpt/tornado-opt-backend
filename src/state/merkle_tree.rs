@@ -61,7 +61,7 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
-    pub fn new(poseidon_params: PoseidonConfig<Fr>, height: usize) -> Self {
+    pub fn new(poseidon_params: &PoseidonConfig<Fr>, height: usize) -> Self {
         // zero_hashes = reverse([H(zero_leaf), H(H(zero_leaf), H(zero_leaf)), ...])
         let mut zero_hashes = vec![];
         let mut h = Fr::ZERO;
@@ -73,7 +73,7 @@ impl MerkleTree {
         zero_hashes.reverse();
         let node_hashes: HashMap<Vec<bool>, Fr> = HashMap::new();
         Self {
-            poseidon_params,
+            poseidon_params: poseidon_params.clone(),
             height,
             node_hashes,
             zero_hashes,
@@ -150,19 +150,18 @@ fn usize_le_bits(num: usize, length: usize) -> Vec<bool> {
 
 #[cfg(test)]
 mod tests {
+    use crate::state::merkle_tree::MerkleTree;
     use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
     use ark_bn254::Fr;
     use ark_ff::UniformRand as _;
     use folding_schemes::transcript::poseidon::poseidon_canonical_config;
-
-    use crate::merkle_tree::MerkleTree;
 
     #[test]
     fn test_merkle_tree() {
         let poseidon_params = poseidon_canonical_config::<Fr>();
         let height = 3;
 
-        let mut tree = MerkleTree::new(poseidon_params.clone(), height);
+        let mut tree = MerkleTree::new(&poseidon_params, height);
 
         let leaf_hashes: Vec<Fr> = (0..(1 << height)).map(|_| Fr::rand(&mut OsRng)).collect();
 
