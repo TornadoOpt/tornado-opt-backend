@@ -1,6 +1,9 @@
+use crate::contracts::utils::get_provider_with_signer;
+
 use super::{error::BlockchainError, utils::NormalProvider};
 use alloy::{
-    primitives::{Address, B256},
+    primitives::{Address, B256, U256},
+    providers::Provider as _,
     sol,
 };
 
@@ -43,7 +46,7 @@ impl TornadoContract {
         let mut deposit_events = Vec::new();
         for (event, meta) in events {
             deposit_events.push(DepositEvent {
-                index: event.depositIndex,
+                index: todo!("get deposit index from event"),
                 commitment: event.commitment,
             });
         }
@@ -57,28 +60,36 @@ impl TornadoContract {
         Ok(root)
     }
 
-    // pub async fn deposit_native_token(
-    //     &self,
-    //     signer_private_key: B256,
-    //     recipient_salt_hash: Bytes32,
-    //     value: U256,
-    // ) -> Result<TxHash, BlockchainError> {
-    //     let signer = get_provider_with_signer(&self.provider, signer_private_key);
-    //     let contract = Int1::new(self.address, signer.clone());
-    //     let tx_request = contract
-    //         .depositNativeToken(convert_bytes32_to_b256(recipient_salt_hash))
-    //         .value(value)
-    //         .into_transaction_request();
-    //     let tx_hash = send_transaction_with_gas_bump(
-    //         &self.provider,
-    //         signer,
-    //         tx_request,
-    //         "deposit_native_token",
-    //         "depositor",
-    //     )
-    //     .await?;
-    //     Ok(tx_hash)
-    // }
+    pub async fn set_checkpoint(
+        &self,
+        proof: Vec<u8>,
+        hash_chain_root: B256,
+        virtual_merkle_root: B256,
+    ) -> Result<(), BlockchainError> {
+        let signer = self.provider.clone(); // Assuming the provider has signing capabilities
+        let contract = Tornado::new(self.address, signer.clone());
+        let tx_request = contract
+            .setCheckpoint(proof.into(), hash_chain_root, virtual_merkle_root)
+            .into_transaction_request();
+        let _tx_hash = signer.send_transaction(tx_request).await?;
+        Ok(())
+    }
+
+    pub async fn deposit(
+        &self,
+        signer_private_key: B256,
+        commitment: B256,
+        amount: U256,
+    ) -> Result<(), BlockchainError> {
+        let signer = get_provider_with_signer(&self.provider, signer_private_key);
+        let contract = Tornado::new(self.address, signer.clone());
+        let tx_request = contract
+            .deposit(commitment)
+            .value(amount)
+            .into_transaction_request();
+        let _tx_hash = signer.send_transaction(tx_request).await?;
+        Ok(())
+    }
 
     // pub async fn withdrawal(
     //     &self,
