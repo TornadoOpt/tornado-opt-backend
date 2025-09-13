@@ -92,3 +92,63 @@ impl State {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::circuits::ivc::{MerkleIvcCircuit, N};
+    use crate::contracts::{tornado::TornadoContract, utils::get_provider};
+    use alloy::primitives::Address;
+    use folding_schemes::transcript::poseidon::poseidon_canonical_config;
+    use ark_bn254::{Bn254, G1Projective as G1};
+    use ark_grumpkin::Projective as G2;
+    use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
+
+    #[test]
+    #[ignore]
+    fn test_tick() -> anyhow::Result<()> {
+        // Poseidon params and merkle tree
+        let poseidon_params = poseidon_canonical_config::<Fr>();
+        let merkle_tree = MerkleTree::new(&poseidon_params, H);
+        let initial_merkle_root = merkle_tree.get_root();
+
+        // Nova circuit and initialization
+        let f_circuit = MerkleIvcCircuit::<Fr> {
+            poseidon_params: poseidon_params.clone(),
+        };
+        let mut rng = OsRng;
+        let preprocess_params = folding_schemes::folding::nova::PreprocessorParam::<
+            G1,
+            G2,
+            MerkleIvcCircuit<Fr>,
+            KZG<'static, Bn254>,
+            Pedersen<G2>,
+            false,
+        >::new(poseidon_params.clone(), f_circuit.clone());
+        let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
+        let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(1u64)];
+        let nova = N::init(&nova_params, f_circuit, z_0)?;
+
+        // Dummy observer (not used by tick)
+        let provider = get_provider("http://localhost:8545").expect("provider");
+        let contract = TornadoContract::new(provider, Address::ZERO);
+        let observer = Observer::new(contract, 0);
+
+        // Build state
+        let mut state = State::new(observer, &poseidon_params, nova);
+
+        // Execute one tick
+        let commitment = Fr::from(123u64);
+        state.tick(commitment)?;
+
+        // Basic post-conditions
+        assert_eq!(state.commitments.len(), 1);
+        assert_eq!(state.commitments[0], commitment);
+        let nova_state = state.nova.state();
+        assert_eq!(nova_state[0], state.hash_chain_root);
+        assert_eq!(nova_state[1], state.merkle_tree.get_root());
+        assert_eq!(nova_state[2], Fr::from(2u64)); // index incremented
+
+        Ok(())
+    }
+}
