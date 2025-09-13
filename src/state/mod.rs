@@ -1,12 +1,15 @@
 use crate::circuits::ivc::N;
+use crate::contracts::tornado::TornadoContract;
 use crate::state::merkle_tree::MerkleTree;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
 use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
 use ark_bn254::Fr;
 use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
 use ark_ff::{AdditiveGroup as _, BigInteger, PrimeField};
-pub mod merkle_tree;
 use folding_schemes::FoldingScheme;
+
+pub mod merkle_tree;
+pub mod observer;
 
 const H: usize = 20; // Merkle tree height
 
@@ -73,6 +76,10 @@ impl State {
         assert_eq!(nova_state_after[1], self.merkle_tree.get_root());
         assert_eq!(nova_state_after[2], nova_state[2] + Fr::from(1u64));
 
+        Ok(())
+    }
+
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         Ok(())
     }
 }
