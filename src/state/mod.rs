@@ -1,6 +1,6 @@
 use crate::circuits::ivc::N;
-use crate::contracts::tornado::TornadoContract;
 use crate::state::merkle_tree::MerkleTree;
+use crate::state::observer::Observer;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
 use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
 use ark_bn254::Fr;
@@ -14,6 +14,7 @@ pub mod observer;
 const H: usize = 20; // Merkle tree height
 
 pub struct State {
+    pub observer: Observer,
     pub nova: N,
     pub hash_chain_root: Fr,
     pub merkle_tree: MerkleTree,
@@ -21,9 +22,10 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(poseidon_params: &PoseidonConfig<Fr>, nova: N) -> Self {
+    pub fn new(observer: Observer, poseidon_params: &PoseidonConfig<Fr>, nova: N) -> Self {
         let merkle_tree = MerkleTree::new(poseidon_params, H);
         Self {
+            observer,
             nova,
             hash_chain_root: Fr::ZERO,
             merkle_tree,
@@ -80,6 +82,13 @@ impl State {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        self.observer.scan().await?;
+        let events = self.observer.deposit_events.clone();
+        let index = self.commitments.len();
+        for event in &events[index..] {
+            let commitment = Fr::from_le_bytes_mod_order(&event.commitment.0);
+            self.tick(commitment)?;
+        }
         Ok(())
     }
 }
