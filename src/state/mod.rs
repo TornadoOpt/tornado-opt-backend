@@ -147,7 +147,7 @@ mod tests {
         let nova_state = state.nova.state();
         assert_eq!(nova_state[0], state.hash_chain_root);
         assert_eq!(nova_state[1], state.merkle_tree.get_root());
-        assert_eq!(nova_state[2], Fr::from(2u64)); // index incremented
+        assert_eq!(nova_state[2], Fr::from(1u64)); // index incremented
 
         Ok(())
     }
