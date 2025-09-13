@@ -20,15 +20,10 @@ use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::ToBytesGadget;
 use ark_r1cs_std::select::CondSelectGadget;
 use ark_relations::r1cs::{ConstraintSystemRef, SynthesisError};
-use std::time::Instant;
-
 use folding_schemes::{
-    Decider, Error, FoldingScheme,
+    Error,
     commitment::{kzg::KZG, pedersen::Pedersen},
-    folding::{
-        nova::{Nova, PreprocessorParam, decider_eth::Decider as DeciderEth},
-        traits::CommittedInstanceOps,
-    },
+    folding::nova::{Nova, decider_eth::Decider as DeciderEth},
     frontend::FCircuit,
 };
 
@@ -138,10 +133,10 @@ impl<F: PrimeField + Absorb> MerkleIvcCircuit<F> {
     /// Native Poseidon two-to-one Merkle root helper
     pub fn calc_root_native(&self, leaf: F, siblings: &[F; 20], mut index: u64) -> F {
         let mut node = leaf;
-        for i in 0..20 {
+        for s in siblings.iter() {
             let bit = (index & 1) == 1;
-            let left = if bit { siblings[i] } else { node };
-            let right = if bit { node } else { siblings[i] };
+            let left = if bit { *s } else { node };
+            let right = if bit { node } else { *s };
             node = TwoToOneCRH::<F>::evaluate(&self.poseidon_params, left, right).unwrap();
             index >>= 1;
         }

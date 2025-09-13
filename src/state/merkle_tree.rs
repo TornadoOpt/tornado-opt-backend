@@ -25,9 +25,9 @@ impl MerkleProof {
         let mut state = leaf_hash;
         for (&bit, sibling) in index_bits.iter().zip(self.siblings.iter()) {
             state = if bit {
-                two_to_one(&param, *sibling, state)
+                two_to_one(param, *sibling, state)
             } else {
-                two_to_one(&param, state, *sibling)
+                two_to_one(param, state, *sibling)
             }
         }
         state
@@ -65,10 +65,10 @@ impl MerkleTree {
         // zero_hashes = reverse([H(zero_leaf), H(H(zero_leaf), H(zero_leaf)), ...])
         let mut zero_hashes = vec![];
         let mut h = Fr::ZERO;
-        zero_hashes.push(h.clone());
+        zero_hashes.push(h);
         for _ in 0..height {
-            h = two_to_one(&poseidon_params, h, h);
-            zero_hashes.push(h.clone());
+            h = two_to_one(poseidon_params, h, h);
+            zero_hashes.push(h);
         }
         zero_hashes.reverse();
         let node_hashes: HashMap<Vec<bool>, Fr> = HashMap::new();
@@ -87,8 +87,8 @@ impl MerkleTree {
     pub fn get_node_hash(&self, path: &Vec<bool>) -> Fr {
         assert!(path.len() <= self.height);
         match self.node_hashes.get(path) {
-            Some(h) => h.clone(),
-            None => self.zero_hashes[path.len()].clone(),
+            Some(h) => *h,
+            None => self.zero_hashes[path.len()],
         }
     }
 
@@ -96,9 +96,9 @@ impl MerkleTree {
         self.get_node_hash(&vec![])
     }
 
-    fn get_sibling_hash(&self, path: &Vec<bool>) -> Fr {
+    fn get_sibling_hash(&self, path: &[bool]) -> Fr {
         assert!(!path.is_empty());
-        let mut path = path.clone();
+        let mut path = path.to_owned();
         let last = path.len() - 1;
         path[last] = !path[last];
         self.get_node_hash(&path)
@@ -110,7 +110,7 @@ impl MerkleTree {
         path.reverse(); // path is big endian
 
         let mut h = leaf_hash;
-        self.node_hashes.insert(path.clone(), h.clone());
+        self.node_hashes.insert(path.clone(), h);
 
         while !path.is_empty() {
             let sibling = self.get_sibling_hash(&path);
@@ -119,7 +119,7 @@ impl MerkleTree {
             } else {
                 two_to_one(&self.poseidon_params, h, sibling)
             };
-            self.node_hashes.insert(path.clone(), h.clone());
+            self.node_hashes.insert(path.clone(), h);
         }
     }
 

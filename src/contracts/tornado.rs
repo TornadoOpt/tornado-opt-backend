@@ -15,8 +15,8 @@ sol!(
 
 #[derive(Debug, Clone)]
 pub struct DepositEvent {
-    pub index: u64,
     pub commitment: B256,
+    pub index: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -44,9 +44,9 @@ impl TornadoContract {
             .query()
             .await?;
         let mut deposit_events = Vec::new();
-        for (event, meta) in events {
+        for (event, _meta) in events {
             deposit_events.push(DepositEvent {
-                index: todo!("get deposit index from event"),
+                index: event.index.try_into().unwrap(),
                 commitment: event.commitment,
             });
         }
@@ -90,33 +90,4 @@ impl TornadoContract {
         let _tx_hash = signer.send_transaction(tx_request).await?;
         Ok(())
     }
-
-    // pub async fn withdrawal(
-    //     &self,
-    //     signer_private_key: B256,
-    //     pis: &SimpleWithdrawalPublicInputs,
-    //     proof: Vec<u8>,
-    // ) -> Result<TxHash, BlockchainError> {
-    //     let signer = get_provider_with_signer(&self.provider, signer_private_key);
-    //     let contract = Int1::new(self.address, signer.clone());
-    //     let public_inputs = WithdrawalPublicInputs {
-    //         depositRoot: convert_bytes32_to_b256(pis.deposit_root),
-    //         nullifier: convert_bytes32_to_b256(pis.nullifier),
-    //         recipient: convert_address_to_alloy(pis.recipient),
-    //         tokenIndex: pis.token_index,
-    //         amount: convert_u256_to_alloy(pis.amount),
-    //     };
-    //     let tx_request = contract
-    //         .withdraw(public_inputs, proof.into())
-    //         .into_transaction_request();
-    //     let tx_hash = send_transaction_with_gas_bump(
-    //         &self.provider,
-    //         signer,
-    //         tx_request,
-    //         "withdrawal",
-    //         "withdrawer",
-    //     )
-    //     .await?;
-    //     Ok(tx_hash)
-    // }
 }
