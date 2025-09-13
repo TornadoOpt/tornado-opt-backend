@@ -1,9 +1,8 @@
 use crate::circuits::ivc::N;
 use crate::state::merkle_tree::MerkleTree;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
-use alloy::signers::k256::sha2::Digest;
+use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
 use ark_bn254::Fr;
-use ark_crypto_primitives::crh::sha256::Sha256;
 use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
 use ark_ff::{AdditiveGroup as _, BigInteger, PrimeField};
 pub mod merkle_tree;
@@ -34,14 +33,23 @@ impl State {
 
         // state validation
         assert_eq!(nova_state[0], self.hash_chain_root);
+        assert_eq!(nova_state[1], self.merkle_tree.get_root());
+
+        // use Nova's index as the canonical index
+        let nova_index_bytes = nova_state[2].into_bigint().to_bytes_le();
+        let mut idx_le = [0u8; 8];
+        let take = core::cmp::min(8, nova_index_bytes.len());
+        idx_le[..take].copy_from_slice(&nova_index_bytes[..take]);
+        let index = u64::from_le_bytes(idx_le) as usize;
+        assert_eq!(index, self.commitments.len());
 
         // add to hash chain
-        let new_hash_chain_root: [u8; 32] =
-            Sha256::digest(commitment.into_bigint().to_bytes_le()).into();
-        self.hash_chain_root = Fr::from_le_bytes_mod_order(&new_hash_chain_root[..31]);
+        let mut preimage = self.hash_chain_root.into_bigint().to_bytes_le();
+        preimage.extend_from_slice(&commitment.into_bigint().to_bytes_le());
+        let digest: [u8; 32] = Sha256Hasher::digest(&preimage).into();
+        self.hash_chain_root = Fr::from_le_bytes_mod_order(&digest[..31]);
 
         // add to merkle tree
-        let index = self.commitments.len();
         let _old_root = self.merkle_tree.get_root();
         let proof = self.merkle_tree.prove(index);
         self.merkle_tree.update_leaf(index, commitment);
@@ -58,6 +66,12 @@ impl State {
             .try_into()
             .unwrap();
         self.nova.prove_step(&mut rng, external_inputs, None)?;
+
+        // post state validation against Nova's updated state
+        let nova_state_after = self.nova.state();
+        assert_eq!(nova_state_after[0], self.hash_chain_root);
+        assert_eq!(nova_state_after[1], self.merkle_tree.get_root());
+        assert_eq!(nova_state_after[2], nova_state[2] + Fr::from(1u64));
 
         Ok(())
     }
