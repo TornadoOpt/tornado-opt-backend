@@ -126,7 +126,7 @@ mod tests {
             false,
         >::new(poseidon_params.clone(), f_circuit.clone());
         let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
-        let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(1u64)];
+        let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(0u64)];
         let nova = N::init(&nova_params, f_circuit, z_0)?;
 
         // Dummy observer (not used by tick)
