@@ -62,12 +62,11 @@ impl TornadoContract {
 
     pub async fn set_checkpoint(
         &self,
-        signer_private_key: B256,
         proof: Vec<u8>,
         hash_chain_root: B256,
         virtual_merkle_root: B256,
     ) -> Result<(), BlockchainError> {
-        let signer = get_provider_with_signer(&self.provider, signer_private_key);
+        let signer = self.provider.clone(); // Assuming the provider has signing capabilities
         let contract = Tornado::new(self.address, signer.clone());
         let tx_request = contract
             .setCheckpoint(proof.into(), hash_chain_root, virtual_merkle_root)
@@ -87,6 +86,23 @@ impl TornadoContract {
         let tx_request = contract
             .deposit(commitment)
             .value(amount)
+            .into_transaction_request();
+        let _tx_hash = signer.send_transaction(tx_request).await?;
+        Ok(())
+    }
+
+    pub async fn withdraw(
+        &self,
+        signer_private_key: B256,
+        proof_w: Vec<u8>,
+        nullifier_hash: B256,
+        virtual_merkle_root: B256,
+        recipient: Address,
+    ) -> Result<(), BlockchainError> {
+        let signer = get_provider_with_signer(&self.provider, signer_private_key);
+        let contract = Tornado::new(self.address, signer.clone());
+        let tx_request = contract
+            .withdraw(proof_w.into(), nullifier_hash, virtual_merkle_root, recipient)
             .into_transaction_request();
         let _tx_hash = signer.send_transaction(tx_request).await?;
         Ok(())
