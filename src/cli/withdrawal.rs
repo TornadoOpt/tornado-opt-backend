@@ -110,8 +110,6 @@ pub async fn withdrawal_operation(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-
     use super::*;
     use crate::{cli::evm::Evm, state::merkle_tree::MerkleTree};
     use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
