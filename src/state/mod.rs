@@ -171,6 +171,11 @@ impl State {
     }
 
     pub async fn set_checkpoint_on_chain(&self, private_key: B256) -> anyhow::Result<()> {
+        if self.commitments.is_empty() {
+            log::warn!("No commitments to set checkpoint for");
+            return Ok(());
+        }
+
         let calldata = self.generate_evm_proof()?;
         let hash_chain_root = self.hash_chain_root;
         let merkle_root = self.merkle_tree.get_root();
