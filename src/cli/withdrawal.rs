@@ -28,6 +28,7 @@ pub async fn withdrawal_operation(
     let (commitment_fe, nullifier_hash_fe) =
         compute_commitment_and_nullifier_hash(nullifier_fr, secret_fr);
     let commitment_b = fr_to_b256_be(commitment_fe);
+    println!("Computed commitment: 0x{}", hex::encode(commitment_b.0));
     let nullifier_hash_b = fr_to_b256_be(nullifier_hash_fe);
 
     // 3) Locate deposit index on-chain
@@ -40,6 +41,8 @@ pub async fn withdrawal_operation(
         anyhow::bail!("deposit commitment not found on-chain");
     };
     let index: usize = index_u64 as usize;
+
+    log::info!("Found deposit on-chain at index {} ", index,);
 
     // 4) Build withdraw proof over local Merkle tree (for debugging/validation)
     // Recipient defaults to the signer derived from the provided private key
@@ -92,10 +95,18 @@ pub async fn withdrawal_operation(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+
     use super::*;
-    use crate::state::merkle_tree::MerkleTree;
+    use crate::{cli::evm::Evm, state::merkle_tree::MerkleTree};
     use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
-    use ark_ff::UniformRand as _;
+    use ark_bn254::Bn254;
+    use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK as _, SNARK as _};
+    use ark_ff::{BigInteger as _, UniformRand as _};
+    use ark_groth16::Groth16;
+    use rand::{SeedableRng as _, rngs::StdRng};
+    use sha3::Keccak256;
+    use solidity_verifiers::evm::compile_solidity;
 
     // This test focuses on the pure, local parts used by withdrawal:
     // - recomputing commitment and nullifier hash from note secrets

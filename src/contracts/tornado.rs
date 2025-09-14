@@ -62,6 +62,7 @@ impl TornadoContract {
         let events = contract
             .event_filter::<Tornado::Deposit>()
             .address(self.address)
+            .from_block(0)
             .topic1(commitment)
             .query()
             .await?;

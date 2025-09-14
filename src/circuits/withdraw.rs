@@ -13,37 +13,51 @@ use rand::rngs::StdRng;
 
 use crate::state::merkle_tree::{MerkleTree, two_to_one as two_to_one_native};
 
+/// Poseidon Merkle withdraw circuit (no folding, plain Groth16)
+/// Public inputs:
+///   - merkle_root : bytes32 as Fr
+///   - nullifier_hash   : bytes32 as Fr
+///   - recipient_f : Fr
+///
+/// Witness:
+///   - nullifier, secret               (Fr)
+///   - merkle_root       (Fr)
+///   - path_siblings[H], path_bits[H]  (Fr / bool)
+///   - recipient_square               (Fr)  -- recipient_f^2
+///
+/// Constraints:
+///   1) nullifier_hash   == Poseidon2(TAG_NULL, nullifier)
+///   2) leaf             == Poseidon2(Poseidon2(TAG_LEAF, nullifier), secret)
+///   3) MerkleVerify_Poseidon2(merkle_root, leaf, siblings, bits)
+///   4) recipient_f * recipient_f == recipient_square
+
 #[derive(Clone)]
 pub struct WithdrawCircuit<const H: usize> {
     // Poseidon parameters shared by leaf & internal nodes
     pub poseidon_params: PoseidonConfig<Fr>,
 
     // ---- public inputs ----
-    pub state_commitment: Option<Fr>,
+    pub merkle_root: Option<Fr>,
     pub nullifier_hash: Option<Fr>,
     pub recipient_f: Option<Fr>,
 
     // ---- witness ----
     pub nullifier: Option<Fr>,
     pub secret: Option<Fr>,
-    pub merkle_root: Option<Fr>,
-    pub index_upper: Option<Fr>,
     pub path_siblings: [Option<Fr>; H],
     pub path_bits: [Option<bool>; H],
     pub recipient_square: Option<Fr>,
 }
 
 // Domain-separation tags (feel free to change to your canonical values)
-const TAG_CP: u64 = 11; // commitment to (merkle_root, index_upper)
 const TAG_NULL: u64 = 12; // nullifier hash
 const TAG_LEAF: u64 = 13; // leaf(commitment) = Poseidon2(Poseidon2(TAG_LEAF, nullifier), secret)
 
 impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
     fn generate_constraints(self, cs: ConstraintSystemRef<Fr>) -> Result<(), SynthesisError> {
         // ---- allocate public inputs ----
-        let state_commitment_in = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.state_commitment
-                .ok_or(SynthesisError::AssignmentMissing)
+        let merkle_root_in = FpVar::<Fr>::new_input(cs.clone(), || {
+            self.merkle_root.ok_or(SynthesisError::AssignmentMissing)
         })?;
         let nullifier_hash_in = FpVar::<Fr>::new_input(cs.clone(), || {
             self.nullifier_hash.ok_or(SynthesisError::AssignmentMissing)
@@ -58,12 +72,6 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
         })?;
         let secret = FpVar::<Fr>::new_witness(cs.clone(), || {
             self.secret.ok_or(SynthesisError::AssignmentMissing)
-        })?;
-        let merkle_root = FpVar::<Fr>::new_witness(cs.clone(), || {
-            self.merkle_root.ok_or(SynthesisError::AssignmentMissing)
-        })?;
-        let index_upper = FpVar::<Fr>::new_witness(cs.clone(), || {
-            self.index_upper.ok_or(SynthesisError::AssignmentMissing)
         })?;
         let recipient_square = FpVar::<Fr>::new_witness(cs.clone(), || {
             self.recipient_square
@@ -88,19 +96,19 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
             })?);
         }
 
-        // ---- (2) nullifier hash check ----
+        // ---- (1) nullifier hash check ----
         // nullifier_hash_calc = Poseidon2(TAG_NULL, nullifier)
         let tag_null = FpVar::<Fr>::constant(Fr::from(TAG_NULL));
         let nh_t = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &tag_null, &nullifier)?;
         nh_t.enforce_equal(&nullifier_hash_in)?;
 
-        // ---- (3) leaf commitment ----
+        // ---- (2) leaf commitment ----
         // leaf = Poseidon2(Poseidon2(TAG_LEAF, nullifier), secret)
         let tag_leaf = FpVar::<Fr>::constant(Fr::from(TAG_LEAF));
         let t_leaf = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &tag_leaf, &nullifier)?;
         let leaf = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &t_leaf, &secret)?;
 
-        // ---- (4) Merkle path verification (Poseidon 2→1) ----
+        // ---- (3) Merkle path verification (Poseidon 2→1) ----
         // node starts at leaf and is folded with siblings along path bits (LSB-first)
         let mut node = leaf;
         for lvl in 0..H {
@@ -110,16 +118,9 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
             let right = FpVar::<Fr>::conditionally_select(b, &node, s)?;
             node = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &left, &right)?;
         }
-        node.enforce_equal(&merkle_root)?;
+        node.enforce_equal(&merkle_root_in)?;
 
-        // ---- (1) state_commitment open ----
-        // sc = Poseidon2(Poseidon2(TAG_CP, merkle_root), index_upper)
-        let tag_cp = FpVar::<Fr>::constant(Fr::from(TAG_CP));
-        let t_cp = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &tag_cp, &merkle_root)?;
-        let sc = TwoToOneCRHGadget::<Fr>::evaluate(&params_var, &t_cp, &index_upper)?;
-        sc.enforce_equal(&state_commitment_in)?;
-
-        // ---- (5) recipient binding (square) ----
+        // ---- (4) recipient binding (square) ----
         let r_sq = &recipient_f_in * &recipient_f_in;
         r_sq.enforce_equal(&recipient_square)?;
 
@@ -162,24 +163,19 @@ pub fn make_withdraw_proof<const H: usize>(
     }
 
     let merkle_root = tree.get_root();
-    let index_upper = Fr::from(index as u64); // simplistic binding for demo
 
     // Public inputs (native)
-    let t_cp = two_to_one_native(poseidon_params, Fr::from(TAG_CP), merkle_root);
-    let state_commitment = two_to_one_native(poseidon_params, t_cp, index_upper);
     let nullifier_hash = two_to_one_native(poseidon_params, Fr::from(TAG_NULL), nullifier);
     let recipient_square = recipient_f * recipient_f;
 
     // Construct circuit instance
     let circ = WithdrawCircuit::<H> {
         poseidon_params: poseidon_params.clone(),
-        state_commitment: Some(state_commitment),
         nullifier_hash: Some(nullifier_hash),
         recipient_f: Some(recipient_f),
         nullifier: Some(nullifier),
         secret: Some(secret),
         merkle_root: Some(merkle_root),
-        index_upper: Some(index_upper),
         path_siblings,
         path_bits,
         recipient_square: Some(recipient_square),
@@ -195,7 +191,7 @@ pub fn make_withdraw_proof<const H: usize>(
     let proof =
         Groth16::<ark_bn254::Bn254>::create_random_proof_with_reduction(circ, &pk, &mut OsRng)?;
 
-    let public_inputs = vec![state_commitment, nullifier_hash, recipient_f];
+    let public_inputs = vec![merkle_root, nullifier_hash, recipient_f];
     // Optional: quick self-check verify before returning
     let prepared = prepare_verifying_key(&vk);
     anyhow::ensure!(

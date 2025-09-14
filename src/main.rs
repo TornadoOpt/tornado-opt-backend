@@ -3,8 +3,7 @@ use clap::{Parser, command};
 use rand::{SeedableRng as _, rngs::StdRng};
 use tornado_opt_backend::{
     cli::{
-        checkpoint::checkpoint_operation,
-        deposit::deposit_operation,
+        checkpoint::checkpoint_operation, deposit::deposit_operation,
         withdrawal::withdrawal_operation,
     },
     contracts::{tornado::TornadoContract, utils::get_provider},
@@ -22,7 +21,9 @@ pub enum CliCommand {
     Withdrawal {
         #[clap(long)]
         private_key: B256,
+        #[clap(long)]
         nullifier: B256,
+        #[clap(long)]
         secret: B256,
     },
     Checkpoint {
