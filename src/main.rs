@@ -4,7 +4,7 @@ use rand::{SeedableRng as _, rngs::StdRng};
 use tornado_opt_backend::{
     cli::{
         checkpoint::checkpoint_operation,
-        deposit::{self, deposit_operation},
+        deposit::deposit_operation,
         withdrawal::withdrawal_operation,
     },
     contracts::{tornado::TornadoContract, utils::get_provider},
@@ -40,32 +40,40 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let env = envy::from_env::<EnvVar>().expect("Failed to load env var");
-    let mut rng = StdRng::seed_from_u64(7);
-    let provider = get_provider(&env.rpc_url)?;
-    let contract = TornadoContract::new(provider, env.contract_address);
-    let observer = Observer::new(contract, env.deployed_eth_block);
-    let mut state = State::new(&mut rng, observer)?;
-
     // parse command line arguments
-    log::info!("Setup completed");
+    log::info!("Setup started");
 
     let args = CliCommand::parse();
     match args {
         CliCommand::Deposit { private_key } => {
-            deposit_operation(&mut state, private_key).await?;
-            return Ok(());
+            // Fast path: avoid heavy Nova/IVC init
+            let provider = get_provider(&env.rpc_url)?;
+            let contract = TornadoContract::new(provider, env.contract_address);
+            deposit_operation(&contract, private_key).await?;
+            Ok(())
         }
         CliCommand::Withdrawal {
             private_key,
             nullifier,
             secret,
         } => {
+            // Initialize full state only for flows that need it
+            let provider = get_provider(&env.rpc_url)?;
+            let contract = TornadoContract::new(provider, env.contract_address);
+            let observer = Observer::new(contract, env.deployed_eth_block);
+            let mut rng = StdRng::seed_from_u64(7);
+            let mut state = State::new(&mut rng, observer)?;
             withdrawal_operation(&mut state, nullifier, secret, private_key).await?;
-            return Ok(());
+            Ok(())
         }
         CliCommand::Checkpoint { private_key } => {
+            let provider = get_provider(&env.rpc_url)?;
+            let contract = TornadoContract::new(provider, env.contract_address);
+            let observer = Observer::new(contract, env.deployed_eth_block);
+            let mut rng = StdRng::seed_from_u64(7);
+            let mut state = State::new(&mut rng, observer)?;
             checkpoint_operation(&mut state, private_key).await?;
-            return Ok(());
+            Ok(())
         }
     }
 }

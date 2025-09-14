@@ -5,7 +5,8 @@ use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 
 use crate::{
     notes::Note,
-    state::{State, merkle_tree::two_to_one as poseidon_two_to_one},
+    state::merkle_tree::two_to_one as poseidon_two_to_one,
+    contracts::tornado::TornadoContract,
 };
 
 // Must match circuit tags in `src/circuits/withdraw.rs`
@@ -28,7 +29,7 @@ pub fn fr_to_b256_be(f: Fr) -> B256 {
     B256::from_slice(&f.into_bigint().to_bytes_be())
 }
 
-pub async fn deposit_operation(state: &mut State, private_key: B256) -> anyhow::Result<()> {
+pub async fn deposit_operation(contract: &TornadoContract, private_key: B256) -> anyhow::Result<()> {
     // 1) Generate note secrets (Fr elements)
     let mut rng = alloy::signers::k256::elliptic_curve::rand_core::OsRng;
     let nullifier = Fr::rand(&mut rng);
@@ -45,12 +46,8 @@ pub async fn deposit_operation(state: &mut State, private_key: B256) -> anyhow::
     let nullifier_hash = fr_to_b256_be(nullifier_hash_fe);
 
     // 4) Fetch denomination and submit deposit transaction
-    let denom: U256 = state.observer.contract.get_denomination().await?;
-    state
-        .observer
-        .contract
-        .deposit(private_key, commitment, denom)
-        .await?;
+    let denom: U256 = contract.get_denomination().await?;
+    contract.deposit(private_key, commitment, denom).await?;
 
     // 5) Print note for later withdrawal
     let note = Note { nullifier: nullifier_b, secret: secret_b, commitment };
