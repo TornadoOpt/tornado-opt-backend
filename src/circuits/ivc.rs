@@ -102,7 +102,7 @@ impl<F: PrimeField + Absorb> FCircuit<F> for MerkleIvcCircuit<F> {
         let index_bits20: Vec<Boolean<F>> = index_bits_all.into_iter().take(20).collect();
 
         // (2) Enforce carried merkle_root corresponds to siblings at PREVIOUS index with leaf=0
-        //     i.e., merkle_root == CalculateRoot(siblings, index-1, 0)
+        //     i.e., merkle_root == CalculateRoot(siblings, index, 0)
         let mut node_zero = FpVar::<F>::constant(F::ZERO);
         for (lvl, s) in siblings_vec.iter().enumerate() {
             let b = &index_bits20[lvl];

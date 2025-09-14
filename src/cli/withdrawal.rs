@@ -1,8 +1,7 @@
 use alloy::primitives::{Address, B256};
 use ark_bn254::Fr;
-use ark_ff::PrimeField as _;
+use ark_ff::{BigInteger as _, PrimeField as _};
 use folding_schemes::transcript::poseidon::poseidon_canonical_config;
-use folding_schemes::utils::eth::ToEth as _;
 
 use crate::{
     cli::deposit::{compute_commitment_and_nullifier_hash, fr_to_b256_be},
@@ -53,7 +52,7 @@ pub async fn withdrawal_operation(
 
     let params = poseidon_canonical_config::<Fr>();
     // This generates a Groth16 proof and verifies it locally.
-    let (_proof, _vk, _public_inputs) = crate::circuits::withdraw::make_withdraw_proof::<H>(
+    let (proof, _vk, public_inputs) = crate::circuits::withdraw::make_withdraw_proof::<H>(
         &params,
         &state.merkle_tree,
         index,
@@ -65,20 +64,36 @@ pub async fn withdrawal_operation(
     // 5) Prepare on-chain withdraw call
     // Virtual merkle root must match the registered checkpoint; here we use current tree root
     // assuming a checkpoint has been set for it.
-    let virtual_merkle_root = fr_to_b256_be(state.merkle_tree.get_root());
 
     // Serialize Groth16 proof for the on-chain withdrawVerifier
-    let proof_w: Vec<u8> = _proof.to_eth();
+    fn fe_to_be_bytes<F: ark_ff::PrimeField>(f: &F) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        let bytes = f.into_bigint().to_bytes_be();
+        let start = 32 - bytes.len();
+        out[start..].copy_from_slice(&bytes);
+        out
+    }
+
+    // proof (static)
+    let mut calldata_verify_tx = Vec::with_capacity(8 * 32);
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.a.x));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.a.y));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.b.x.c0));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.b.x.c1));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.b.y.c0));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.b.y.c1));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.c.x));
+    calldata_verify_tx.extend_from_slice(&fe_to_be_bytes(&proof.c.y));
 
     state
         .observer
         .contract
         .withdraw(
             private_key,
-            proof_w,
-            nullifier_hash_b,
-            virtual_merkle_root,
-            recipient,
+            calldata_verify_tx,
+            fr_to_b256_be(public_inputs[1]),
+            fr_to_b256_be(public_inputs[0]),
+            fr_to_b256_be(public_inputs[2]),
         )
         .await?;
 

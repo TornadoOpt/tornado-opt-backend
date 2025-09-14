@@ -124,7 +124,7 @@ impl TornadoContract {
         proof_w: Vec<u8>,
         nullifier_hash: B256,
         virtual_merkle_root: B256,
-        recipient: Address,
+        recipient: B256,
     ) -> Result<(), BlockchainError> {
         let signer = get_provider_with_signer(&self.provider, signer_private_key);
         let contract = Tornado::new(self.address, signer.clone());
@@ -136,7 +136,8 @@ impl TornadoContract {
                 recipient,
             )
             .into_transaction_request();
-        let _tx_hash = signer.send_transaction(tx_request).await?;
+        let tx_hash = signer.send_transaction(tx_request).await?;
+        log::info!("Withdrawal transaction sent. Tx hash: 0x{:?}", tx_hash);
         Ok(())
     }
 }
