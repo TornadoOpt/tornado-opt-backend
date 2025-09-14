@@ -38,10 +38,11 @@ rust-crypto = { version = "0.2" }
 envy = "0.4.2"
 serde = { version = "1.0.221", features = ["derive"] }
 dotenvy = "0.15.7"
-tokio = {version="1.47.1", features=["full"]}
+tokio = { version = "1.47.1", features = ["full"] }
 env_logger = "0.11.8"
 log = "0.4.28"
 hex = "0.4.3"
+clap = { version = "4.5.18", features = ["derive"] }
 
 [patch.crates-io]
 ark-r1cs-std = { git = "https://github.com/yelhousni/r1cs-std", rev = "440ca3" }
