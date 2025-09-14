@@ -54,6 +54,25 @@ impl TornadoContract {
         Ok(deposit_events)
     }
 
+    pub async fn get_deposit_index(
+        &self,
+        commitment: B256,
+    ) -> Result<Option<u64>, BlockchainError> {
+        let contract = Tornado::new(self.address, self.provider.clone());
+        let events = contract
+            .event_filter::<Tornado::Deposit>()
+            .address(self.address)
+            .topic1(commitment)
+            .query()
+            .await?;
+        if events.is_empty() {
+            Ok(None)
+        } else {
+            let (event, _meta) = &events[0];
+            Ok(Some(event.index.try_into().unwrap()))
+        }
+    }
+
     pub async fn get_hash_chain_root(&self) -> Result<B256, BlockchainError> {
         let tornado = Tornado::new(self.address, self.provider.clone());
         let root = tornado.hashChainRoot().call().await?;
