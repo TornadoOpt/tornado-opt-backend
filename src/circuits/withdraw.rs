@@ -23,7 +23,7 @@ pub struct WithdrawCircuit<const H: usize> {
     // ---- public inputs ----
     pub state_commitment: Option<Fr>,
     pub nullifier_hash: Option<Fr>,
-    pub recipient_square: Option<Fr>,
+    pub recipient_f: Option<Fr>,
 
     // ---- witness ----
     pub nullifier: Option<Fr>,
@@ -32,7 +32,7 @@ pub struct WithdrawCircuit<const H: usize> {
     pub index_upper: Option<Fr>,
     pub path_siblings: [Option<Fr>; H],
     pub path_bits: [Option<bool>; H],
-    pub recipient_f: Option<Fr>,
+    pub recipient_square: Option<Fr>,
 }
 
 // Domain-separation tags (feel free to change to your canonical values)
@@ -51,8 +51,8 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
             self.nullifier_hash
                 .ok_or(SynthesisError::AssignmentMissing)
         })?;
-        let recipient_square_in = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.recipient_square
+        let recipient_f_in = FpVar::<Fr>::new_input(cs.clone(), || {
+            self.recipient_f
                 .ok_or(SynthesisError::AssignmentMissing)
         })?;
 
@@ -65,8 +65,10 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
             FpVar::<Fr>::new_witness(cs.clone(), || self.merkle_root.ok_or(SynthesisError::AssignmentMissing))?;
         let index_upper =
             FpVar::<Fr>::new_witness(cs.clone(), || self.index_upper.ok_or(SynthesisError::AssignmentMissing))?;
-        let recipient_f =
-            FpVar::<Fr>::new_witness(cs.clone(), || self.recipient_f.ok_or(SynthesisError::AssignmentMissing))?;
+        let recipient_square = FpVar::<Fr>::new_witness(cs.clone(), || {
+            self.recipient_square
+                .ok_or(SynthesisError::AssignmentMissing)
+        })?;
 
         let params_var = CRHParametersVar::<Fr>::new_constant(cs.clone(), self.poseidon_params.clone())?;
 
@@ -117,8 +119,8 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
         sc.enforce_equal(&state_commitment_in)?;
 
         // ---- (5) recipient binding (square) ----
-        let r_sq = &recipient_f * &recipient_f;
-        r_sq.enforce_equal(&recipient_square_in)?;
+        let r_sq = &recipient_f_in * &recipient_f_in;
+        r_sq.enforce_equal(&recipient_square)?;
 
         Ok(())
     }
@@ -172,14 +174,14 @@ pub fn make_withdraw_proof<const H: usize>(
         poseidon_params: poseidon_params.clone(),
         state_commitment: Some(state_commitment),
         nullifier_hash: Some(nullifier_hash),
-        recipient_square: Some(recipient_square),
+        recipient_f: Some(recipient_f),
         nullifier: Some(nullifier),
         secret: Some(secret),
         merkle_root: Some(merkle_root),
         index_upper: Some(index_upper),
         path_siblings,
         path_bits,
-        recipient_f: Some(recipient_f),
+        recipient_square: Some(recipient_square),
     };
 
     // Groth16 setup, prove, verify
@@ -187,7 +189,7 @@ pub fn make_withdraw_proof<const H: usize>(
     let vk = pk.vk.clone();
     let proof = Groth16::<ark_bn254::Bn254>::create_random_proof_with_reduction(circ, &pk, &mut OsRng)?;
 
-    let public_inputs = vec![state_commitment, nullifier_hash, recipient_square];
+    let public_inputs = vec![state_commitment, nullifier_hash, recipient_f];
     // Optional: quick self-check verify before returning
     let prepared = prepare_verifying_key(&vk);
     anyhow::ensure!(
