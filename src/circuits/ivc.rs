@@ -11,6 +11,7 @@ use ark_bn254::{Bn254, Fr, G1Projective as G1};
 use ark_ff::PrimeField;
 use ark_groth16::Groth16;
 use ark_grumpkin::Projective as G2;
+
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::boolean::Boolean;
 use ark_r1cs_std::convert::ToBitsGadget;
@@ -38,6 +39,10 @@ use ark_crypto_primitives::crh::sha256::constraints::{Sha256Gadget, UnitVar};
 use ark_crypto_primitives::crh::{TwoToOneCRHScheme, TwoToOneCRHSchemeGadget};
 use ark_crypto_primitives::sponge::Absorb;
 use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
+
+pub type N = Nova<G1, G2, MerkleIvcCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, false>;
+pub type D =
+    DeciderEth<G1, G2, MerkleIvcCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, Groth16<Bn254>, N>;
 
 #[derive(Clone, Debug)]
 pub struct MerkleIvcCircuit<F: PrimeField + Absorb> {
@@ -143,10 +148,6 @@ impl<F: PrimeField + Absorb> MerkleIvcCircuit<F> {
         node
     }
 }
-
-pub type N = Nova<G1, G2, MerkleIvcCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, false>;
-pub type D =
-    DeciderEth<G1, G2, MerkleIvcCircuit<Fr>, KZG<'static, Bn254>, Pedersen<G2>, Groth16<Bn254>, N>;
 
 // fn main() -> Result<(), Error> {
 //     // Use a power-of-two step count for a clean fold tree

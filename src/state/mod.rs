@@ -1,32 +1,52 @@
-use crate::circuits::ivc::N;
+use crate::circuits::ivc::{D, MerkleIvcCircuit, N};
 use crate::state::merkle_tree::MerkleTree;
 use crate::state::observer::Observer;
+use alloy::primitives::U256;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
 use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
-use ark_bn254::Fr;
+use ark_bn254::{Fr, G1Projective as G1};
 use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
 use ark_ff::{AdditiveGroup as _, BigInteger, PrimeField};
-use folding_schemes::FoldingScheme;
+use ark_grumpkin::Projective as G2;
+use folding_schemes::folding::traits::CommittedInstanceOps as _;
+use folding_schemes::{Decider, FoldingScheme};
 
 pub mod merkle_tree;
 pub mod observer;
 
 const H: usize = 20; // Merkle tree height
 
+type NovaVP = <N as FoldingScheme<G1, G2, MerkleIvcCircuit<Fr>>>::VerifierParam;
+type DeciderPP = <D as Decider<G1, G2, MerkleIvcCircuit<Fr>, N>>::ProverParam;
+type DeciderVP = <D as Decider<G1, G2, MerkleIvcCircuit<Fr>, N>>::VerifierParam;
+
 pub struct State {
     pub observer: Observer,
     pub nova: N,
+    pub nova_vp: NovaVP,
+    pub decider_pp: DeciderPP,
+    pub decider_vp: DeciderVP,
     pub hash_chain_root: Fr,
     pub merkle_tree: MerkleTree,
     pub commitments: Vec<Fr>,
 }
 
 impl State {
-    pub fn new(observer: Observer, poseidon_params: &PoseidonConfig<Fr>, nova: N) -> Self {
+    pub fn new(
+        observer: Observer,
+        nova_vp: NovaVP,
+        decider_pp: DeciderPP,
+        decider_vp: DeciderVP,
+        poseidon_params: &PoseidonConfig<Fr>,
+        nova: N,
+    ) -> Self {
         let merkle_tree = MerkleTree::new(poseidon_params, H);
         Self {
             observer,
             nova,
+            nova_vp,
+            decider_pp,
+            decider_vp,
             hash_chain_root: Fr::ZERO,
             merkle_tree,
             commitments: vec![],
@@ -78,7 +98,33 @@ impl State {
         assert_eq!(nova_state_after[1], self.merkle_tree.get_root());
         assert_eq!(nova_state_after[2], nova_state[2] + Fr::from(1u64));
 
+        // verify the nova proof
+        let proof = self.nova.ivc_proof();
+        N::verify(self.nova_vp.clone(), proof)
+            .map_err(|e| anyhow::anyhow!("Nova proof verification failed: {:?}", e))?;
+
         Ok(())
+    }
+
+    // generate an EVM proof for the current state
+    // returns ((hash_chain_root, merkle_root, index), proof)
+    fn generate_evm_proof(&self) -> anyhow::Result<((U256, U256, U256), Vec<u8>)> {
+        let mut rng = OsRng;
+        let proof = D::prove(&mut rng, self.decider_pp.clone(), self.nova.clone())?;
+
+        // verify the proof before returning
+        let verified = D::verify(
+            self.decider_vp.clone(),
+            self.nova.i,
+            self.nova.z_0.clone(),
+            self.nova.z_i.clone(),
+            &self.nova.U_i.get_commitments(),
+            &self.nova.u_i.get_commitments(),
+            &proof,
+        )?;
+        assert!(verified);
+
+        todo!()
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -99,10 +145,11 @@ mod tests {
     use crate::circuits::ivc::{MerkleIvcCircuit, N};
     use crate::contracts::{tornado::TornadoContract, utils::get_provider};
     use alloy::primitives::Address;
-    use folding_schemes::transcript::poseidon::poseidon_canonical_config;
     use ark_bn254::{Bn254, G1Projective as G1};
     use ark_grumpkin::Projective as G2;
     use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
+    use folding_schemes::frontend::FCircuit as _;
+    use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 
     #[test]
     #[ignore]
@@ -126,6 +173,9 @@ mod tests {
             false,
         >::new(poseidon_params.clone(), f_circuit.clone());
         let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
+        let (decider_pp, decider_vp) =
+            D::preprocess(&mut rng, (nova_params.clone(), f_circuit.state_len()))?;
+
         let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(0u64)];
         let nova = N::init(&nova_params, f_circuit, z_0)?;
 
@@ -135,7 +185,14 @@ mod tests {
         let observer = Observer::new(contract, 0);
 
         // Build state
-        let mut state = State::new(observer, &poseidon_params, nova);
+        let mut state = State::new(
+            observer,
+            nova_params.1,
+            decider_pp,
+            decider_vp,
+            &poseidon_params,
+            nova,
+        );
 
         // Execute one tick
         let commitment = Fr::from(123u64);
@@ -147,7 +204,21 @@ mod tests {
         let nova_state = state.nova.state();
         assert_eq!(nova_state[0], state.hash_chain_root);
         assert_eq!(nova_state[1], state.merkle_tree.get_root());
-        assert_eq!(nova_state[2], Fr::from(1u64)); // index incremented
+        assert_eq!(nova_state[2], Fr::from(1u64));
+
+        // Execute another tick
+        let commitment = Fr::from(456u64);
+        state.tick(commitment)?;
+
+        // post-conditions
+        assert_eq!(state.commitments.len(), 2);
+        assert_eq!(state.commitments[1], commitment);
+        let nova_state = state.nova.state();
+        assert_eq!(nova_state[0], state.hash_chain_root);
+        assert_eq!(nova_state[1], state.merkle_tree.get_root());
+        assert_eq!(nova_state[2], Fr::from(2u64));
+
+        let _proof = state.generate_evm_proof()?;
 
         Ok(())
     }
