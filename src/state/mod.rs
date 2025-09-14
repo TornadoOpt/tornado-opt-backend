@@ -67,6 +67,7 @@ impl State {
         idx_le[..take].copy_from_slice(&nova_index_bytes[..take]);
         let index = u64::from_le_bytes(idx_le) as usize;
         assert_eq!(index, self.commitments.len());
+        println!("Processing commitment at index {}", index);
 
         // add to hash chain
         let mut preimage = self.hash_chain_root.into_bigint().to_bytes_le();
