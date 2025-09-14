@@ -179,6 +179,14 @@ impl State {
         let calldata = self.generate_evm_proof()?;
         let hash_chain_root = self.hash_chain_root;
         let merkle_root = self.merkle_tree.get_root();
+
+        log::info!(
+            "Setting checkpoint on chain: hash_chain_root = {}, merkle_root = {}, index = {}",
+            fr_to_bytes32(hash_chain_root),
+            fr_to_bytes32(merkle_root),
+            self.commitments.len()
+        );
+
         self.observer
             .contract
             .set_checkpoint(
@@ -194,6 +202,13 @@ impl State {
 
 fn fr_to_bytes32(f: Fr) -> B256 {
     B256::from_slice(&f.into_bigint().to_bytes_be())
+}
+
+pub fn hash_with_commitment(hash_chain_root: Fr, commitment: Fr) -> Fr {
+    let mut preimage = hash_chain_root.into_bigint().to_bytes_le();
+    preimage.extend_from_slice(&commitment.into_bigint().to_bytes_le());
+    let digest: [u8; 32] = Sha256Hasher::digest(&preimage).into();
+    Fr::from_le_bytes_mod_order(&digest[..31])
 }
 
 #[cfg(test)]
@@ -213,6 +228,33 @@ mod tests {
     use solidity_verifiers::{
         NovaCycleFoldVerifierKey, get_decider_template_for_cyclefold_decider,
     };
+
+    #[test]
+    fn test_hash_chain() {
+        let commitments_str = vec![
+            "0x000000000000000000000000000000000000000000000000000000000000007b",
+            "0x000000000000000000000000000000000000000000000000000000000000010b",
+        ];
+
+        // convert hex string to Fr
+        let commitments: Vec<Fr> = commitments_str
+            .iter()
+            .map(|s| {
+                let bytes = hex::decode(s.trim_start_matches("0x")).unwrap();
+                Fr::from_be_bytes_mod_order(&bytes)
+            })
+            .collect();
+
+        let mut hash_chain_root = Fr::ZERO;
+        for commitment in &commitments {
+            hash_chain_root = hash_with_commitment(hash_chain_root, *commitment);
+            println!(
+                "commitment: {}, hash_chain_root: {}",
+                fr_to_bytes32(*commitment),
+                fr_to_bytes32(hash_chain_root)
+            );
+        }
+    }
 
     #[test]
     #[ignore]

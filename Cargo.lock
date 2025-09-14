@@ -4567,6 +4567,7 @@ dependencies = [
  "env_logger",
  "envy",
  "folding-schemes",
+ "hex",
  "log",
  "rand 0.8.5",
  "reqwest",
