@@ -163,16 +163,22 @@ impl State {
         let events = self.observer.deposit_events.clone();
         let index = self.commitments.len();
         for event in &events[index..] {
-            let commitment = Fr::from_le_bytes_mod_order(&event.commitment.0);
+            let commitment = Fr::from_be_bytes_mod_order(&event.commitment.0);
             self.tick(commitment)?;
             log::info!("Tick {} processed", self.commitments.len() - 1,);
+            log::info!(
+                "  commitment = {}, hash_chain_root = {}, merkle_root = {}",
+                fr_to_bytes32(commitment),
+                fr_to_bytes32(self.hash_chain_root),
+                fr_to_bytes32(self.merkle_tree.get_root())
+            );
         }
         Ok(())
     }
 
     pub async fn set_checkpoint_on_chain(&self, private_key: B256) -> anyhow::Result<()> {
-        if self.commitments.is_empty() {
-            log::warn!("No commitments to set checkpoint for");
+        if self.commitments.len() <= 1 {
+            log::warn!("not enough new commitments to set checkpoint on chain");
             return Ok(());
         }
 
