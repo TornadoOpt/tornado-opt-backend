@@ -17,7 +17,9 @@ impl Observer {
         }
     }
 
-    // todo: add scan pagination
+    // todo: 
+    // 1. record the last scanned block to avoid rescanning the same blocks
+    // 2. limit max interval of scanned blocks to avoid RPC errors
     pub async fn scan(&mut self) -> anyhow::Result<()> {
         let latest_block = self.contract.provider.get_block_number().await?;
         let events = self

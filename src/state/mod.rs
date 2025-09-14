@@ -170,14 +170,14 @@ impl State {
         Ok(())
     }
 
-    pub async fn set_checkpoint_on_chain(&self, signer_private_key: B256) -> anyhow::Result<()> {
+    pub async fn set_checkpoint_on_chain(&self, private_key: B256) -> anyhow::Result<()> {
         let calldata = self.generate_evm_proof()?;
         let hash_chain_root = self.hash_chain_root;
         let merkle_root = self.merkle_tree.get_root();
         self.observer
             .contract
             .set_checkpoint(
-                signer_private_key,
+                private_key,
                 calldata,
                 fr_to_bytes32(hash_chain_root),
                 fr_to_bytes32(merkle_root),

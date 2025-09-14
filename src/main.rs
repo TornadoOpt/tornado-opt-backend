@@ -21,7 +21,11 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("Setup completed");
 
+    // sync and generate ivc proofs
     state.run().await?;
+
+    // set checkpoint on chain
+    state.set_checkpoint_on_chain(env.private_key).await?;
 
     Ok(())
 }
