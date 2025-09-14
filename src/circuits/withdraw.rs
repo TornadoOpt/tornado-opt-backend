@@ -8,8 +8,8 @@ use ark_r1cs_std::{
     select::CondSelectGadget as _,
 };
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
-use rand::rngs::StdRng;
 use rand::SeedableRng as _;
+use rand::rngs::StdRng;
 
 use crate::state::merkle_tree::{MerkleTree, two_to_one as two_to_one_native};
 
@@ -235,7 +235,7 @@ fn usize_le_bits(num: usize, length: usize) -> Vec<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WithdrawCircuit, make_withdraw_proof};
+    use super::make_withdraw_proof;
     use crate::state::merkle_tree::MerkleTree;
     use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
     use ark_bn254::Fr;

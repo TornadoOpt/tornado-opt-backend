@@ -7,12 +7,17 @@ use crate::state::observer::Observer;
 use alloy::primitives::B256;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
 use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
-use ark_bn254::{Fr, G1Projective as G1};
-use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
+use ark_bn254::{Bn254, Fr, G1Projective as G1};
 use ark_ff::{AdditiveGroup as _, BigInteger, PrimeField};
 use ark_grumpkin::Projective as G2;
+use ark_std::rand::RngCore;
+use folding_schemes::commitment::kzg::KZG;
+use folding_schemes::commitment::pedersen::Pedersen;
 use folding_schemes::folding::traits::CommittedInstanceOps as _;
+use folding_schemes::frontend::FCircuit as _;
+use folding_schemes::transcript::poseidon::poseidon_canonical_config;
 use folding_schemes::{Decider, FoldingScheme};
+use rand::CryptoRng;
 
 pub mod merkle_tree;
 pub mod observer;
@@ -35,25 +40,36 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(
-        observer: Observer,
-        nova_vp: NovaVP,
-        decider_pp: DeciderPP,
-        decider_vp: DeciderVP,
-        poseidon_params: &PoseidonConfig<Fr>,
-        nova: N,
-    ) -> Self {
-        let merkle_tree = MerkleTree::new(poseidon_params, H);
-        Self {
+    pub fn new<R: RngCore + CryptoRng>(mut rng: R, observer: Observer) -> anyhow::Result<Self> {
+        let poseidon_params = poseidon_canonical_config::<Fr>();
+        let merkle_tree = MerkleTree::new(&poseidon_params, H);
+        let initial_merkle_root = merkle_tree.get_root();
+        let f_circuit = MerkleIvcCircuit::<Fr> {
+            poseidon_params: poseidon_params.clone(),
+        };
+        let preprocess_params = folding_schemes::folding::nova::PreprocessorParam::<
+            G1,
+            G2,
+            MerkleIvcCircuit<Fr>,
+            KZG<'static, Bn254>,
+            Pedersen<G2>,
+            false,
+        >::new(poseidon_params.clone(), f_circuit.clone());
+        let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
+        let (decider_pp, decider_vp) =
+            D::preprocess(&mut rng, (nova_params.clone(), f_circuit.state_len()))?;
+        let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(0u64)];
+        let nova = N::init(&nova_params, f_circuit, z_0)?;
+        Ok(Self {
             observer,
             nova,
-            nova_vp,
+            nova_vp: nova_params.1,
             decider_pp,
             decider_vp,
             hash_chain_root: Fr::ZERO,
             merkle_tree,
             commitments: vec![],
-        }
+        })
     }
 
     pub fn tick(&mut self, commitment: Fr) -> anyhow::Result<()> {
@@ -185,8 +201,9 @@ mod tests {
     use ark_bn254::{Bn254, G1Projective as G1};
     use ark_grumpkin::Projective as G2;
     use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
-    use folding_schemes::frontend::FCircuit as _;
     use folding_schemes::transcript::poseidon::poseidon_canonical_config;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use solidity_verifiers::{
         NovaCycleFoldVerifierKey, get_decider_template_for_cyclefold_decider,
     };
@@ -221,30 +238,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_tick() -> anyhow::Result<()> {
-        // Poseidon params and merkle tree
-        let poseidon_params = poseidon_canonical_config::<Fr>();
-        let merkle_tree = MerkleTree::new(&poseidon_params, H);
-        let initial_merkle_root = merkle_tree.get_root();
-
-        // Nova circuit and initialization
-        let f_circuit = MerkleIvcCircuit::<Fr> {
-            poseidon_params: poseidon_params.clone(),
-        };
-        let mut rng = OsRng;
-        let preprocess_params = folding_schemes::folding::nova::PreprocessorParam::<
-            G1,
-            G2,
-            MerkleIvcCircuit<Fr>,
-            KZG<'static, Bn254>,
-            Pedersen<G2>,
-            false,
-        >::new(poseidon_params.clone(), f_circuit.clone());
-        let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
-        let (decider_pp, decider_vp) =
-            D::preprocess(&mut rng, (nova_params.clone(), f_circuit.state_len()))?;
-
-        let z_0 = vec![Fr::from(0u64), initial_merkle_root, Fr::from(0u64)];
-        let nova = N::init(&nova_params, f_circuit, z_0)?;
+        let mut rng = StdRng::seed_from_u64(7);
 
         // Dummy observer (not used by tick)
         let provider = get_provider("http://localhost:8545").expect("provider");
@@ -252,14 +246,7 @@ mod tests {
         let observer = Observer::new(contract, 0);
 
         // Build state
-        let mut state = State::new(
-            observer,
-            nova_params.1,
-            decider_pp,
-            decider_vp,
-            &poseidon_params,
-            nova,
-        );
+        let mut state = State::new(&mut rng, observer)?;
 
         // Execute one tick
         let commitment = Fr::from(123u64);
