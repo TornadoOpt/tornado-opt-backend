@@ -165,6 +165,7 @@ impl State {
         for event in &events[index..] {
             let commitment = Fr::from_le_bytes_mod_order(&event.commitment.0);
             self.tick(commitment)?;
+            log::info!("Tick {} processed", self.commitments.len() - 1,);
         }
         Ok(())
     }
@@ -217,7 +218,7 @@ mod tests {
         let f_circuit = MerkleIvcCircuit::<Fr> {
             poseidon_params: poseidon_params.clone(),
         };
-        let mut rng = OsRng;
+        let mut rng = StdRng::seed_from_u64(7);
         let preprocess_params = folding_schemes::folding::nova::PreprocessorParam::<
             G1,
             G2,
