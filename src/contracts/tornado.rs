@@ -79,6 +79,12 @@ impl TornadoContract {
         Ok(root._0)
     }
 
+    pub async fn get_denomination(&self) -> Result<alloy::primitives::U256, BlockchainError> {
+        let tornado = Tornado::new(self.address, self.provider.clone());
+        let denom = tornado.denomination().call().await?;
+        Ok(denom._0)
+    }
+
     pub async fn set_checkpoint(
         &self,
         signer_private_key: B256,
