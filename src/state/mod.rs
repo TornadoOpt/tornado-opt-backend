@@ -1,7 +1,9 @@
 use crate::circuits::ivc::{D, MerkleIvcCircuit, N};
+use crate::contracts::calldata::{
+    NovaVerificationMode, prepare_calldata_for_nova_cyclefold_verifier,
+};
 use crate::state::merkle_tree::MerkleTree;
 use crate::state::observer::Observer;
-use alloy::primitives::U256;
 use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
 use alloy::signers::k256::sha2::{Digest as ShaDigest, Sha256 as Sha256Hasher};
 use ark_bn254::{Fr, G1Projective as G1};
@@ -109,7 +111,7 @@ impl State {
 
     // generate an EVM proof for the current state
     // returns ((hash_chain_root, merkle_root, index), proof)
-    fn generate_evm_proof(&self) -> anyhow::Result<((U256, U256, U256), Vec<u8>)> {
+    fn generate_evm_proof(&self) -> anyhow::Result<Vec<u8>> {
         let mut rng = OsRng;
         let proof = D::prove(&mut rng, self.decider_pp.clone(), self.nova.clone())?;
 
@@ -125,7 +127,18 @@ impl State {
         )?;
         assert!(verified);
 
-        todo!()
+        // generate calldata from the proof
+        let calldata: Vec<u8> = prepare_calldata_for_nova_cyclefold_verifier(
+            NovaVerificationMode::Explicit,
+            self.nova.i,
+            self.nova.z_0.clone(),
+            self.nova.z_i.clone(),
+            &self.nova.U_i,
+            &self.nova.u_i,
+            &proof,
+        )?;
+
+        Ok(calldata)
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -142,6 +155,8 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use crate::circuits::ivc::{MerkleIvcCircuit, N};
     use crate::contracts::{tornado::TornadoContract, utils::get_provider};
@@ -151,6 +166,36 @@ mod tests {
     use folding_schemes::commitment::{kzg::KZG, pedersen::Pedersen};
     use folding_schemes::frontend::FCircuit as _;
     use folding_schemes::transcript::poseidon::poseidon_canonical_config;
+    use solidity_verifiers::{
+        NovaCycleFoldVerifierKey, get_decider_template_for_cyclefold_decider,
+    };
+
+    #[test]
+    #[ignore]
+    fn test_save_solidity_verifier() -> anyhow::Result<()> {
+        // Poseidon params and merkle tree
+        let poseidon_params = poseidon_canonical_config::<Fr>();
+        // Nova circuit and initialization
+        let f_circuit = MerkleIvcCircuit::<Fr> {
+            poseidon_params: poseidon_params.clone(),
+        };
+        let mut rng = OsRng;
+        let preprocess_params = folding_schemes::folding::nova::PreprocessorParam::<
+            G1,
+            G2,
+            MerkleIvcCircuit<Fr>,
+            KZG<'static, Bn254>,
+            Pedersen<G2>,
+            false,
+        >::new(poseidon_params.clone(), f_circuit.clone());
+        let nova_params = N::preprocess(&mut rng, &preprocess_params)?;
+        let (_decider_pp, decider_vp) =
+            D::preprocess(&mut rng, (nova_params.clone(), f_circuit.state_len()))?;
+        let nova_cyclefold_vk = NovaCycleFoldVerifierKey::from((decider_vp, f_circuit.state_len()));
+        let decider_solidity_code = get_decider_template_for_cyclefold_decider(nova_cyclefold_vk);
+        fs::write("NovaDecider.sol", decider_solidity_code)?;
+        Ok(())
+    }
 
     #[test]
     #[ignore]
