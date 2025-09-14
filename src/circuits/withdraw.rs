@@ -1,19 +1,17 @@
 use ark_bn254::Fr;
-use ark_crypto_primitives::crh::poseidon::constraints::{CRHParametersVar, TwoToOneCRHGadget};
 use ark_crypto_primitives::crh::TwoToOneCRHSchemeGadget as _;
+use ark_crypto_primitives::crh::poseidon::constraints::{CRHParametersVar, TwoToOneCRHGadget};
 use ark_crypto_primitives::sponge::poseidon::PoseidonConfig;
-use ark_groth16::{prepare_verifying_key, Groth16};
+use ark_groth16::{Groth16, prepare_verifying_key};
 use ark_r1cs_std::{
-    alloc::AllocVar,
-    boolean::Boolean,
-    eq::EqGadget,
-    fields::fp::FpVar,
-    fields::FieldVar as _,
+    alloc::AllocVar, boolean::Boolean, eq::EqGadget, fields::FieldVar as _, fields::fp::FpVar,
     select::CondSelectGadget as _,
 };
 use ark_relations::r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
+use rand::rngs::StdRng;
+use rand::SeedableRng as _;
 
-use crate::state::merkle_tree::{two_to_one as two_to_one_native, MerkleTree};
+use crate::state::merkle_tree::{MerkleTree, two_to_one as two_to_one_native};
 
 #[derive(Clone)]
 pub struct WithdrawCircuit<const H: usize> {
@@ -48,29 +46,32 @@ impl<const H: usize> ConstraintSynthesizer<Fr> for WithdrawCircuit<H> {
                 .ok_or(SynthesisError::AssignmentMissing)
         })?;
         let nullifier_hash_in = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.nullifier_hash
-                .ok_or(SynthesisError::AssignmentMissing)
+            self.nullifier_hash.ok_or(SynthesisError::AssignmentMissing)
         })?;
         let recipient_f_in = FpVar::<Fr>::new_input(cs.clone(), || {
-            self.recipient_f
-                .ok_or(SynthesisError::AssignmentMissing)
+            self.recipient_f.ok_or(SynthesisError::AssignmentMissing)
         })?;
 
         // ---- allocate witnesses ----
-        let nullifier =
-            FpVar::<Fr>::new_witness(cs.clone(), || self.nullifier.ok_or(SynthesisError::AssignmentMissing))?;
-        let secret =
-            FpVar::<Fr>::new_witness(cs.clone(), || self.secret.ok_or(SynthesisError::AssignmentMissing))?;
-        let merkle_root =
-            FpVar::<Fr>::new_witness(cs.clone(), || self.merkle_root.ok_or(SynthesisError::AssignmentMissing))?;
-        let index_upper =
-            FpVar::<Fr>::new_witness(cs.clone(), || self.index_upper.ok_or(SynthesisError::AssignmentMissing))?;
+        let nullifier = FpVar::<Fr>::new_witness(cs.clone(), || {
+            self.nullifier.ok_or(SynthesisError::AssignmentMissing)
+        })?;
+        let secret = FpVar::<Fr>::new_witness(cs.clone(), || {
+            self.secret.ok_or(SynthesisError::AssignmentMissing)
+        })?;
+        let merkle_root = FpVar::<Fr>::new_witness(cs.clone(), || {
+            self.merkle_root.ok_or(SynthesisError::AssignmentMissing)
+        })?;
+        let index_upper = FpVar::<Fr>::new_witness(cs.clone(), || {
+            self.index_upper.ok_or(SynthesisError::AssignmentMissing)
+        })?;
         let recipient_square = FpVar::<Fr>::new_witness(cs.clone(), || {
             self.recipient_square
                 .ok_or(SynthesisError::AssignmentMissing)
         })?;
 
-        let params_var = CRHParametersVar::<Fr>::new_constant(cs.clone(), self.poseidon_params.clone())?;
+        let params_var =
+            CRHParametersVar::<Fr>::new_constant(cs.clone(), self.poseidon_params.clone())?;
 
         // siblings
         let mut siblings = Vec::with_capacity(H);
@@ -185,17 +186,21 @@ pub fn make_withdraw_proof<const H: usize>(
     };
 
     // Groth16 setup, prove, verify
-    let pk = Groth16::<ark_bn254::Bn254>::generate_random_parameters_with_reduction(circ.clone(), &mut OsRng)?;
+    let mut rng = StdRng::seed_from_u64(7);
+    let pk = Groth16::<ark_bn254::Bn254>::generate_random_parameters_with_reduction(
+        circ.clone(),
+        &mut rng,
+    )?;
     let vk = pk.vk.clone();
-    let proof = Groth16::<ark_bn254::Bn254>::create_random_proof_with_reduction(circ, &pk, &mut OsRng)?;
+    let proof =
+        Groth16::<ark_bn254::Bn254>::create_random_proof_with_reduction(circ, &pk, &mut OsRng)?;
 
     let public_inputs = vec![state_commitment, nullifier_hash, recipient_f];
     // Optional: quick self-check verify before returning
     let prepared = prepare_verifying_key(&vk);
     anyhow::ensure!(
         Groth16::<ark_bn254::Bn254>::verify_proof(&prepared, &proof, &public_inputs)
-            .map_err(|e| anyhow::anyhow!("verification error: {e}"))?
-            ,
+            .map_err(|e| anyhow::anyhow!("verification error: {e}"))?,
         "Groth16 verification failed"
     );
 
@@ -210,7 +215,10 @@ pub fn make_withdraw_proof<const H: usize>(
         }
         node
     };
-    anyhow::ensure!(recomputed_root == merkle_root, "Path does not match Merkle root");
+    anyhow::ensure!(
+        recomputed_root == merkle_root,
+        "Path does not match Merkle root"
+    );
 
     Ok((proof, vk, public_inputs))
 }
@@ -227,7 +235,7 @@ fn usize_le_bits(num: usize, length: usize) -> Vec<bool> {
 
 #[cfg(test)]
 mod tests {
-    use super::{make_withdraw_proof, WithdrawCircuit};
+    use super::{WithdrawCircuit, make_withdraw_proof};
     use crate::state::merkle_tree::MerkleTree;
     use alloy::signers::k256::elliptic_curve::rand_core::OsRng;
     use ark_bn254::Fr;
@@ -247,20 +255,30 @@ mod tests {
         let recipient_f = Fr::rand(&mut OsRng);
 
         // Native leaf commitment as in the circuit
-        let t_leaf = crate::state::merkle_tree::two_to_one(&poseidon_params, Fr::from(13u64), nullifier);
+        let t_leaf =
+            crate::state::merkle_tree::two_to_one(&poseidon_params, Fr::from(13u64), nullifier);
         let leaf = crate::state::merkle_tree::two_to_one(&poseidon_params, t_leaf, secret);
         tree.update_leaf(index, leaf);
 
         // Create Groth16 withdraw proof and verify
-        let (proof, vk, public_inputs) =
-            make_withdraw_proof::<H>(&poseidon_params, &tree, index, nullifier, secret, recipient_f)
-                .expect("proof generation should succeed");
+        let (proof, vk, public_inputs) = make_withdraw_proof::<H>(
+            &poseidon_params,
+            &tree,
+            index,
+            nullifier,
+            secret,
+            recipient_f,
+        )
+        .expect("proof generation should succeed");
 
         let prepared = ark_groth16::prepare_verifying_key(&vk);
         assert!(
-            ark_groth16::Groth16::<ark_bn254::Bn254>
-                ::verify_proof(&prepared, &proof, &public_inputs)
-                .unwrap()
+            ark_groth16::Groth16::<ark_bn254::Bn254>::verify_proof(
+                &prepared,
+                &proof,
+                &public_inputs
+            )
+            .unwrap()
         );
     }
 }

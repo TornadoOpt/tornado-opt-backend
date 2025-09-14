@@ -4375,7 +4375,7 @@ dependencies = [
  "ark-r1cs-std",
  "ark-relations",
  "folding-schemes",
- "rand 0.9.2",
+ "rand 0.8.5",
  "reqwest",
  "rust-crypto",
  "solidity-verifiers",
