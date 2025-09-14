@@ -4,7 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = { version = "1.0.30", features = ["rand"] }
+alloy = { version = "0.12.6", features = [
+    "contract",
+    "eips",
+    "k256",
+    "network",
+    "provider-http",
+    "provider-ws",
+    "provider-ipc",
+    "rpc-types",
+    "signer-local",
+] }
 ark-ff = { version = "0.5.0" }
 ark-bn254 = { version = "0.5.0" }
 ark-grumpkin = { version = "0.5.0" }
@@ -13,6 +23,7 @@ folding-schemes = { git = "https://github.com/privacy-scaling-explorations/sonob
     "parallel",
     "light-test",
 ] }
+solidity-verifiers = { git = "https://github.com/privacy-scaling-explorations/sonobe", rev = "fc91430" }
 ark-groth16 = "0.5.0"
 ark-ec = "0.5.0"
 ark-relations = { version = "0.5.0" }

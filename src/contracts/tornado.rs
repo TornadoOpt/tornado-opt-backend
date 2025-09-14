@@ -57,7 +57,7 @@ impl TornadoContract {
     pub async fn get_hash_chain_root(&self) -> Result<B256, BlockchainError> {
         let tornado = Tornado::new(self.address, self.provider.clone());
         let root = tornado.hashChainRoot().call().await?;
-        Ok(root)
+        Ok(root._0)
     }
 
     pub async fn set_checkpoint(

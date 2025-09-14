@@ -2,9 +2,9 @@ use alloy::{
     network::EthereumWallet,
     primitives::{Address, B256},
     providers::{
-        Identity, ProviderBuilder,
+        ProviderBuilder,
         fillers::{
-            ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, SimpleNonceManager,
+            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
         },
     },
@@ -22,8 +22,8 @@ use crate::contracts::error::BlockchainError;
 
 // Use simple nonce manager for the nonce filler because it's easier to handle nonce errors.
 pub type JoinedRecommendedFillersWithSimpleNonce = JoinFill<
-    JoinFill<JoinFill<Identity, GasFiller>, NonceFiller<SimpleNonceManager>>,
-    ChainIdFiller,
+    alloy::providers::Identity,
+    JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
 >;
 
 pub type NormalProvider =
@@ -41,11 +41,7 @@ pub fn get_provider(rpc_urls: &str) -> Result<NormalProvider, BlockchainError> {
         .parse()
         .map_err(|e| BlockchainError::ParseError(format!("Failed to parse URL {rpc_urls}: {e}")))?;
     let client = RpcClient::builder().layer(retry_layer).http(url);
-    let provider = ProviderBuilder::default()
-        .with_gas_estimation()
-        .with_simple_nonce_management()
-        .fetch_chain_id()
-        .connect_client(client);
+    let provider = ProviderBuilder::new().on_client(client);
     Ok(provider)
 }
 
@@ -68,11 +64,7 @@ pub fn get_provider_with_fallback(rpc_urls: &[String]) -> Result<NormalProvider,
     let client = RpcClient::builder()
         .layer(retry_layer)
         .transport(transport, false);
-    let provider = ProviderBuilder::default()
-        .with_gas_estimation()
-        .with_simple_nonce_management()
-        .fetch_chain_id()
-        .connect_client(client);
+    let provider = ProviderBuilder::new().on_client(client);
     Ok(provider)
 }
 
